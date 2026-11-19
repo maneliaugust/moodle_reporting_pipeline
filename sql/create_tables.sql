@@ -1,3 +1,4 @@
+
 CREATE TABLE IF NOT EXISTS moodle_learners (
 
     user_id INTEGER PRIMARY KEY,
@@ -12,6 +13,31 @@ CREATE TABLE IF NOT EXISTS moodle_learners (
     last_course_access TIMESTAMPTZ,
 
     course_count INTEGER,
+
+    extracted_at TIMESTAMPTZ NOT NULL
+);
+
+
+CREATE TABLE IF NOT EXISTS moodle_activity_reports (
+
+    id VARCHAR(100) PRIMARY KEY,
+
+    coursename VARCHAR(255),
+    groupname VARCHAR(255),
+
+    userid INTEGER NOT NULL,
+    firstname VARCHAR(150),
+    lastname VARCHAR(150),
+
+    activitytype VARCHAR(50),
+    activityname VARCHAR(500),
+
+    grade NUMERIC(10, 2),
+
+    duedate TIMESTAMPTZ,
+    submissiondate TIMESTAMPTZ,
+
+    submissionstatus VARCHAR(50),
 
     extracted_at TIMESTAMPTZ NOT NULL
 );

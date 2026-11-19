@@ -1,47 +1,139 @@
 
-from src.extract import get_enrolled_users
-from src.transform import transform_learners
-from src.validate import validate_learners
+from src.extract import (
+    get_enrolled_users,
+    call_moodle_api
+)
+
+from src.transform import (
+    transform_learners,
+    transform_activity_reports
+)
+
+from src.validate import (
+    validate_learners,
+    validate_activity_reports
+)
+
 from src.database import create_tables
-from src.load import load_learners
+
+from src.load import (
+    load_learners,
+    load_activity_reports
+)
+
 from src.tracking import start_pipeline_run, update_pipeline_run
+from src.logger_config import setup_logger
 
 
 def main():
 
-    print("Preparing database tables...")
-    create_tables()
-
-    run_id = start_pipeline_run("Moodle Reporting Pipeline")
+    logger = setup_logger()
 
     records_fetched = 0
     records_transformed = 0
     records_loaded = 0
+    run_id = None
 
     try:
-        print("\nExtracting Moodle learner data...")
+
+        logger.info("Preparing database tables...")
+        create_tables()
+
+        run_id = start_pipeline_run("Moodle Reporting Pipeline")
+
+        logger.info("Moodle reporting pipeline started.")
+
+        # ------------------------------------------------
+        # LEARNER DATA
+        # ------------------------------------------------
+
+        logger.info("Extracting Moodle learner data...")
 
         users = get_enrolled_users(6)
-        records_fetched = len(users)
 
-        print(f"Users retrieved: {records_fetched}")
+        learner_records_fetched = len(users)
+        records_fetched += learner_records_fetched
 
-        print("\nTransforming learner data...")
+        logger.info(f"Users retrieved: {learner_records_fetched}")
 
-        df = transform_learners(users)
-        records_transformed = len(df)
+        logger.info("Transforming learner data...")
 
-        print(f"Learners transformed: {records_transformed}")
+        learner_df = transform_learners(users)
 
-        print("\nStarting data quality validation...")
+        learner_records_transformed = len(learner_df)
+        records_transformed += learner_records_transformed
 
-        if not validate_learners(df):
-            raise ValueError("Data quality validation failed.")
+        logger.info(
+            f"Learners transformed: {learner_records_transformed}"
+        )
 
-        print("\nLoading learner data into PostgreSQL...")
+        logger.info("Validating learner data...")
 
-        load_learners(df)
-        records_loaded = len(df)
+        if not validate_learners(learner_df):
+            raise ValueError("Learner data validation failed.")
+
+        logger.info("Learner data validation passed.")
+
+        logger.info("Loading learner data into PostgreSQL...")
+
+        load_learners(learner_df)
+
+        learner_records_loaded = len(learner_df)
+        records_loaded += learner_records_loaded
+
+        logger.info(
+            f"Learner records loaded: {learner_records_loaded}"
+        )
+
+        # ------------------------------------------------
+        # ACTIVITY REPORT DATA
+        # ------------------------------------------------
+
+        logger.info("Extracting Moodle activity reports...")
+
+        activity_records = call_moodle_api(
+            "local_grades_get_activity_reports"
+        )
+
+        activity_records_fetched = len(activity_records)
+        records_fetched += activity_records_fetched
+
+        logger.info(
+            f"Activity records retrieved: {activity_records_fetched}"
+        )
+
+        logger.info("Transforming activity report data...")
+
+        activity_df = transform_activity_reports(activity_records)
+
+        activity_records_transformed = len(activity_df)
+        records_transformed += activity_records_transformed
+
+        logger.info(
+            f"Activity records transformed: {activity_records_transformed}"
+        )
+
+        logger.info("Validating activity report data...")
+
+        if not validate_activity_reports(activity_df):
+            raise ValueError("Activity report validation failed.")
+
+        logger.info("Activity report validation passed.")
+
+        logger.info("Loading activity reports into PostgreSQL...")
+
+        load_activity_reports(activity_df)
+
+        activity_records_loaded = len(activity_df)
+        records_loaded += activity_records_loaded
+
+        logger.info(
+            f"Activity records loaded: {activity_records_loaded}"
+        )
+
+        # ------------------------------------------------
+        # PIPELINE COMPLETION
+        # ------------------------------------------------
 
         update_pipeline_run(
             run_id,
@@ -51,20 +143,36 @@ def main():
             "Success"
         )
 
-        print("\nMoodle reporting pipeline completed successfully!")
+        logger.info("Moodle reporting pipeline completed successfully.")
+
+        logger.info(f"Total records fetched: {records_fetched}")
+        logger.info(f"Total records transformed: {records_transformed}")
+        logger.info(f"Total records loaded: {records_loaded}")
 
     except Exception as error:
 
-        update_pipeline_run(
-            run_id,
-            records_fetched,
-            records_transformed,
-            records_loaded,
-            "Failed",
-            str(error)
-        )
+        logger.exception("Moodle reporting pipeline failed.")
 
-        print(f"\nPipeline failed: {error}")
+        if run_id is not None:
+
+            try:
+
+                update_pipeline_run(
+                    run_id,
+                    records_fetched,
+                    records_transformed,
+                    records_loaded,
+                    "Failed",
+                    str(error)
+                )
+
+            except Exception:
+
+                logger.exception(
+                    "Failed to update pipeline run history."
+                )
+
+        raise
 
 
 if __name__ == "__main__":

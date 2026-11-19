@@ -76,3 +76,17 @@ def get_site_info():
     return call_moodle_api(
         "core_webservice_get_site_info"
     )
+
+
+def get_user_by_id(user_id):
+
+    users = call_moodle_api(
+        "core_user_get_users",
+        {
+            "criteria[0][key]": "id",
+            "criteria[0][value]": user_id
+        }
+    )
+
+    return users.get("users", [])
+

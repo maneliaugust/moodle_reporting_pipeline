@@ -47,7 +47,6 @@ def load_learners(df):
             extracted_at = EXCLUDED.extracted_at;
     """)
 
-    # Convert Pandas missing values (NaT/NaN) to Python None
     clean_df = df.astype(object).where(
         pd.notna(df),
         None
@@ -66,6 +65,85 @@ def load_learners(df):
 
         print(
             f"Learner records loaded successfully: {len(records)}"
+        )
+
+    finally:
+        engine.dispose()
+
+
+def load_activity_reports(df):
+
+    if df.empty:
+        print("No activity reports to load.")
+        return
+
+    engine = get_database_engine()
+
+    upsert_query = text("""
+        INSERT INTO moodle_activity_reports (
+            id,
+            coursename,
+            groupname,
+            userid,
+            firstname,
+            lastname,
+            activitytype,
+            activityname,
+            grade,
+            duedate,
+            submissiondate,
+            submissionstatus,
+            extracted_at
+        )
+        VALUES (
+            :id,
+            :coursename,
+            :groupname,
+            :userid,
+            :firstname,
+            :lastname,
+            :activitytype,
+            :activityname,
+            :grade,
+            :duedate,
+            :submissiondate,
+            :submissionstatus,
+            :extracted_at
+        )
+        ON CONFLICT (id)
+        DO UPDATE SET
+            coursename = EXCLUDED.coursename,
+            groupname = EXCLUDED.groupname,
+            userid = EXCLUDED.userid,
+            firstname = EXCLUDED.firstname,
+            lastname = EXCLUDED.lastname,
+            activitytype = EXCLUDED.activitytype,
+            activityname = EXCLUDED.activityname,
+            grade = EXCLUDED.grade,
+            duedate = EXCLUDED.duedate,
+            submissiondate = EXCLUDED.submissiondate,
+            submissionstatus = EXCLUDED.submissionstatus,
+            extracted_at = EXCLUDED.extracted_at;
+    """)
+
+    clean_df = df.astype(object).where(
+        pd.notna(df),
+        None
+    )
+
+    records = clean_df.to_dict(orient="records")
+
+    try:
+
+        with engine.begin() as connection:
+
+            connection.execute(
+                upsert_query,
+                records
+            )
+
+        print(
+            f"Activity records loaded successfully: {len(records)}"
         )
 
     finally:
