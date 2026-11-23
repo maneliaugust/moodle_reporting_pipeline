@@ -92,6 +92,7 @@ def load_activity_reports(df):
             grade,
             duedate,
             submissiondate,
+            timemodified,
             submissionstatus,
             extracted_at
         )
@@ -107,6 +108,7 @@ def load_activity_reports(df):
             :grade,
             :duedate,
             :submissiondate,
+            :timemodified,
             :submissionstatus,
             :extracted_at
         )
@@ -122,6 +124,7 @@ def load_activity_reports(df):
             grade = EXCLUDED.grade,
             duedate = EXCLUDED.duedate,
             submissiondate = EXCLUDED.submissiondate,
+            timemodified = EXCLUDED.timemodified,
             submissionstatus = EXCLUDED.submissionstatus,
             extracted_at = EXCLUDED.extracted_at;
     """)

@@ -76,7 +76,8 @@ def transform_activity_reports(records):
     # Convert Unix timestamps to UTC datetime.
     timestamp_columns = [
         "duedate",
-        "submissiondate"
+        "submissiondate",
+        "timemodified"
     ]
 
     for column in timestamp_columns:

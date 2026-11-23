@@ -36,6 +36,7 @@ CREATE TABLE IF NOT EXISTS moodle_activity_reports (
 
     duedate TIMESTAMPTZ,
     submissiondate TIMESTAMPTZ,
+    timemodified TIMESTAMPTZ,
 
     submissionstatus VARCHAR(50),
 
@@ -58,4 +59,15 @@ CREATE TABLE IF NOT EXISTS moodle_pipeline_run_history (
     status VARCHAR(20) NOT NULL,
 
     error_message TEXT
+);
+
+
+CREATE TABLE IF NOT EXISTS moodle_extraction_tracking (
+
+    pipeline_name VARCHAR(100) PRIMARY KEY,
+
+    last_successful_extraction TIMESTAMPTZ,
+
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+
 );

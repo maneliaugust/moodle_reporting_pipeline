@@ -78,3 +78,84 @@ def update_pipeline_run(
 
     finally:
         engine.dispose()
+
+
+def get_last_successful_extraction(pipeline_name):
+
+    engine = get_database_engine()
+
+    query = text("""
+        SELECT last_successful_extraction
+        FROM moodle_extraction_tracking
+        WHERE pipeline_name = :pipeline_name;
+    """)
+
+    try:
+        with engine.connect() as connection:
+            timestamp = connection.execute(
+                query,
+                {"pipeline_name": pipeline_name}
+            ).scalar()
+
+        return timestamp
+
+    finally:
+        engine.dispose()
+
+
+def update_last_successful_extraction(
+        pipeline_name, 
+        extraction_start_time
+):
+
+    engine = get_database_engine()
+
+    query = text("""
+        INSERT INTO moodle_extraction_tracking (
+            pipeline_name,
+            last_successful_extraction,
+            updated_at
+        )
+        VALUES (
+            :pipeline_name,
+            :extraction_start_time,
+            NOW()
+        )
+        ON CONFLICT (pipeline_name)
+        DO UPDATE SET
+            last_successful_extraction = EXCLUDED.last_successful_extraction,
+            updated_at = NOW()
+        RETURNING last_successful_extraction;
+    """)
+
+    try:
+        with engine.begin() as connection:
+            timestamp = connection.execute(
+                query,
+                {"pipeline_name": pipeline_name,
+                "extraction_start_time": extraction_start_time
+                }
+            ).scalar()
+
+        print(f"Extraction checkpoint updated: {timestamp}")
+
+        return timestamp
+
+    finally:
+        engine.dispose()
+
+
+def get_extraction_start_time():
+
+    engine = get_database_engine()
+
+    query = text("SELECT NOW();")
+
+    try:
+        with engine.connect() as connection:
+            timestamp = connection.execute(query).scalar()
+
+        return timestamp
+
+    finally:
+        engine.dispose()

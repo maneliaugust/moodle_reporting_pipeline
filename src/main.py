@@ -21,7 +21,14 @@ from src.load import (
     load_activity_reports
 )
 
-from src.tracking import start_pipeline_run, update_pipeline_run
+from src.tracking import (
+    start_pipeline_run,
+    update_pipeline_run,
+    get_last_successful_extraction,
+    get_extraction_start_time,
+    update_last_successful_extraction
+)
+
 from src.logger_config import setup_logger
 
 
@@ -33,6 +40,7 @@ def main():
     records_transformed = 0
     records_loaded = 0
     run_id = None
+    extraction_start_time = None
 
     try:
 
@@ -40,6 +48,20 @@ def main():
         create_tables()
 
         run_id = start_pipeline_run("Moodle Reporting Pipeline")
+        extraction_start_time = get_extraction_start_time()
+
+        last_successful_extraction = get_last_successful_extraction(
+            "Moodle Reporting Pipeline"
+        )
+
+        if last_successful_extraction is None:
+            since = 0
+        else:
+            since = int(last_successful_extraction.timestamp()) - 300
+
+        logger.info(
+            f"Incremental extraction starting from timestamp: {since}"
+        )
 
         logger.info("Moodle reporting pipeline started.")
 
@@ -92,7 +114,8 @@ def main():
         logger.info("Extracting Moodle activity reports...")
 
         activity_records = call_moodle_api(
-            "local_grades_get_activity_reports"
+            "local_grades_get_activity_reports",
+            {"since": since}
         )
 
         activity_records_fetched = len(activity_records)
@@ -102,38 +125,54 @@ def main():
             f"Activity records retrieved: {activity_records_fetched}"
         )
 
-        logger.info("Transforming activity report data...")
+        if activity_records_fetched > 0:
 
-        activity_df = transform_activity_reports(activity_records)
+            logger.info("Transforming activity report data...")
 
-        activity_records_transformed = len(activity_df)
-        records_transformed += activity_records_transformed
+            activity_df = transform_activity_reports(activity_records)
 
-        logger.info(
-            f"Activity records transformed: {activity_records_transformed}"
-        )
+            activity_records_transformed = len(activity_df)
+            records_transformed += activity_records_transformed
 
-        logger.info("Validating activity report data...")
+            logger.info(
+                f"Activity records transformed: {activity_records_transformed}"
+            )
 
-        if not validate_activity_reports(activity_df):
-            raise ValueError("Activity report validation failed.")
+            logger.info("Validating activity report data...")
 
-        logger.info("Activity report validation passed.")
+            if not validate_activity_reports(activity_df):
+                raise ValueError("Activity report validation failed.")
 
-        logger.info("Loading activity reports into PostgreSQL...")
+            logger.info("Activity report validation passed.")
 
-        load_activity_reports(activity_df)
+            logger.info("Loading activity reports into PostgreSQL...")
 
-        activity_records_loaded = len(activity_df)
-        records_loaded += activity_records_loaded
+            load_activity_reports(activity_df)
 
-        logger.info(
-            f"Activity records loaded: {activity_records_loaded}"
-        )
+            activity_records_loaded = len(activity_df)
+            records_loaded += activity_records_loaded
+
+            logger.info(
+                f"Activity records loaded: {activity_records_loaded}"
+            )
+
+        else:
+
+            logger.info(
+                "No new or modified activity records found. "
+                "Skipping transformation, validation and loading."
+            )
 
         # ------------------------------------------------
         # PIPELINE COMPLETION
         # ------------------------------------------------
+
+        logger.info("Updating successful extraction checkpoint...")
+
+        update_last_successful_extraction(
+            "Moodle Reporting Pipeline",
+            extraction_start_time
+        )
 
         update_pipeline_run(
             run_id,
