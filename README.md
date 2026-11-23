@@ -278,3 +278,13 @@ The pipeline will:
 5. Load records into PostgreSQL.
 6. Update pipeline execution history.
 7. Update the extraction checkpoint after successful processing.
+
+### 7. Supported Moodle Activities
+
+The current activity reporting functionality supports three Moodle activity types:
+
+- **Quizzes:** Retrieves learner quiz attempts, grades, submission dates and activity statuses.
+- **Assignments:** Retrieves learner assignment submissions, grades, submission dates and activity statuses.
+- **Forums:** Retrieves learner forum participation and related activity information.
+
+Activity reports are retrieved from selected Moodle courses, groups and tagged activities through the custom Moodle web service.
