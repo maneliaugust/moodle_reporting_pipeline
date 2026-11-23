@@ -2,18 +2,20 @@
 
 ## Project Overview
 
-This project is an automated ETL (Extract, Transform, Load) pipeline that retrieves learner data from a Moodle Learning Management System (LMS) using the Moodle REST API.
+This project is an automated ETL (Extract, Transform, Load) pipeline that retrieves learner and activity data from a Moodle Learning Management System (LMS) using the Moodle REST API.
 
-The pipeline uses Python and Pandas to extract, clean, transform and validate learner data before storing it in a PostgreSQL database.
+The pipeline uses Python and Pandas to extract, clean, transform and validate Moodle data before storing it in a separate PostgreSQL reporting database.
 
-It also includes data quality checks, UPSERT functionality and pipeline execution tracking to support reliable reporting and future data analysis.
+It supports learner reporting, activity reporting, incremental data extraction, data quality validation, UPSERT functionality and pipeline execution tracking.
+
+The pipeline also maintains extraction checkpoints to track the last successful extraction and avoid repeatedly processing unchanged activity records.
 
 ## Technologies Used
 
 - **Python** – ETL development and API integration
-- **Moodle REST API** – Data extraction
+- **Moodle REST API** – Learner and activity data extraction
 - **Pandas** – Data transformation and cleaning
-- **PostgreSQL** – Data storage
+- **PostgreSQL** – Reporting database
 - **SQLAlchemy** – Database connectivity and queries
 - **Requests** – API requests
 - **Python-dotenv** – Environment variable management
@@ -37,7 +39,8 @@ moodle_reporting_pipeline/
 │   ├── validate.py
 │   ├── database.py
 │   ├── load.py
-│   └── tracking.py
+│   ├── tracking.py
+│   └── logger_config.py
 │
 ├── .env
 ├── .gitignore
@@ -49,25 +52,38 @@ moodle_reporting_pipeline/
 
 ### 1. Extraction
 
-The pipeline connects to Moodle through its REST API to retrieve course and enrolled-user information.
+The pipeline connects to Moodle through its REST API to retrieve learner and activity information.
 
-The current implementation retrieves enrolled users from a specified Moodle course and identifies learners using their assigned student role.
+**Learner data extraction:**
+- Retrieves enrolled users from a specified Moodle course.
+- Identifies learners using their assigned student role.
+- Extracts relevant learner information, including names, email addresses and access timestamps.
+
+**Activity data extraction:**
+- Retrieves learner activity reports through a custom Moodle web service endpoint: `local_grades_get_activity_reports`.
+- Extracts course, group, learner and activity information.
+- Retrieves grades, due dates, submission dates and submission statuses.
+- Retrieves activity modification timestamps to support incremental extraction.
 
 ### 2. Transformation
 
-Pandas is used to:
+Pandas is used to clean and organise the extracted data into structured DataFrames.
 
-- Filter learner records.
-- Select relevant learner information.
-- Organise data into a structured DataFrame.
-- Convert Moodle timestamps into datetime values.
-- Handle missing timestamp values.
-- Add an extraction timestamp.
+The transformation process includes:
+
+- Filtering learner records.
+- Selecting relevant learner and activity information.
+- Converting Moodle Unix timestamps into datetime values.
+- Handling missing timestamp values.
+- Converting numerical fields into appropriate data types.
+- Adding extraction timestamps.
+- Preparing records for database loading.
 
 ### 3. Data Quality Validation
 
-Before loading data into PostgreSQL, the pipeline checks for:
+Before loading data into PostgreSQL, the pipeline performs validation checks.
 
+**Learner data validation:**
 - Empty datasets.
 - Missing learner IDs.
 - Duplicate learner IDs.
@@ -75,21 +91,51 @@ Before loading data into PostgreSQL, the pipeline checks for:
 - Missing email addresses.
 - Invalid course counts.
 
-The pipeline stops if validation fails.
+**Activity report validation:**
+- Empty datasets.
+- Missing required identifiers.
+- Duplicate activity record IDs.
+- Invalid or missing required activity information.
+
+The pipeline stops processing when validation fails and records the error in the pipeline execution history.
 
 ### 4. Loading
 
-SQLAlchemy is used to connect to PostgreSQL and load the transformed learner records.
+SQLAlchemy is used to connect to PostgreSQL and load the transformed learner and activity records.
 
-The pipeline uses an UPSERT operation to insert new learners and update existing records using the Moodle user ID as the unique identifier.
+The pipeline uses PostgreSQL UPSERT functionality to:
 
-This prevents duplicate learner records when the pipeline runs multiple times.
+- Insert new learner and activity records.
+- Update existing records when matching IDs already exist.
+- Prevent duplicate records during repeated extractions.
 
-### 5. Pipeline Execution Tracking
+Learner records use the Moodle user ID as their unique identifier, while activity records use their activity record IDs.
 
-The pipeline maintains a `moodle_pipeline_run_history` table in PostgreSQL.
+### 5. Incremental Extraction
 
-It records:
+The pipeline supports incremental extraction for Moodle activity reports.
+
+Instead of retrieving all activity records during every run, it uses the modification timestamp of the last successful extraction.
+
+The process works as follows:
+
+1. Retrieve the last successful extraction timestamp from PostgreSQL.
+2. Convert the timestamp into a Unix timestamp.
+3. Apply a five-minute overlap to reduce the risk of missing records around extraction boundaries.
+4. Pass the resulting timestamp to the Moodle API through the `since` parameter.
+5. Retrieve new or modified activity records.
+6. Transform, validate and load the returned records.
+7. Update the extraction checkpoint after successful processing.
+
+If no new or modified activity records are found, the pipeline skips activity transformation, validation and loading.
+
+Learner data is currently retrieved and upserted on each pipeline run, while activity reporting uses incremental extraction.
+
+### 6. Pipeline Execution Tracking
+
+The pipeline maintains execution history and extraction checkpoints in PostgreSQL.
+
+The `moodle_pipeline_run_history` table records:
 
 - Pipeline run ID.
 - Pipeline name.
@@ -100,38 +146,77 @@ It records:
 - Pipeline execution status.
 - Error messages when a run fails.
 
+The `moodle_extraction_tracking` table stores the last successful extraction timestamp for incremental processing.
+
+The pipeline also uses logging to capture execution progress, errors and processing results.
+
+If an extraction, validation or loading operation fails, the pipeline records the failed run and does not advance the successful extraction checkpoint.
+
 ## Database Tables
 
-The project currently uses two main tables:
+The project currently uses four main tables:
 
 **moodle_learners**
 
-Stores the transformed Moodle learner information, including learner IDs, names, email addresses, access timestamps and course counts.
+Stores transformed Moodle learner information, including learner IDs, names, email addresses, access timestamps and course counts.
+
+**moodle_activity_reports**
+
+Stores learner activity information, including course details, group information, activity types, grades, due dates, submission dates, modification timestamps and submission statuses.
 
 **moodle_pipeline_run_history**
 
-Stores pipeline execution history, including record counts, timestamps and execution status.
+Stores pipeline execution history, including record counts, timestamps, execution status and error messages.
+
+**moodle_extraction_tracking**
+
+Stores the last successful extraction timestamp used to support incremental activity extraction.
 
 ## Example Pipeline Results
 
-A successful pipeline execution returned the following results:
+The following results were obtained during testing:
+
+### Learner and activity extraction
 
 | Metric | Result |
 |---|---:|
 | Moodle users retrieved | 80 |
 | Learners transformed | 70 |
-| Data quality validation | Passed |
 | Learner records loaded | 70 |
-| Pipeline status | Success |
+| Activity records retrieved | 80 |
+| Activity records loaded | 80 |
+| Learner validation | Passed |
+| Activity validation | Passed |
 
-The pipeline was also executed more than once to verify that the UPSERT functionality prevents duplicate learner records.
+### Incremental extraction and duplicate prevention
+
+The pipeline was executed repeatedly to verify that:
+
+- New or modified activity records could be retrieved using the `since` parameter.
+- Existing records were updated through UPSERT operations.
+- Repeated extraction did not create duplicate activity records.
+- The activity table retained 80 records after reloading the same dataset.
+- Duplicate activity IDs remained at zero.
+
+### Failure handling
+
+Controlled failure tests were performed to verify pipeline reliability.
+
+| Test | Expected behaviour | Result |
+|---|---|---|
+| Moodle API failure | Record failed run and log error | Passed |
+| PostgreSQL loading failure | Record failed run and log error | Passed |
+| Checkpoint protection | Do not advance checkpoint after failure | Passed |
+| Pipeline run tracking | Store failure status and error details | Passed |
+
+These tests used simulated failures rather than actual infrastructure outages.
 
 ## Setup and Installation
 
 ### 1. Clone the repository
 
 ```bash
-git clone YOUR_GITHUB_REPOSITORY_URL
+git clone https://github.com/maneliaugust/moodle_reporting_pipeline
 cd moodle_reporting_pipeline
 ```
 
@@ -172,10 +257,24 @@ DB_PASSWORD=your_password
 
 Use your own configuration values. Never commit your API token or database credentials to GitHub.
 
-### 5. Run the pipeline
+### 5. Prepare the database
+
+Ensure PostgreSQL is running and the reporting database exists.
+
+The pipeline creates its required reporting tables when it starts.
+
+### 6. Run the pipeline
 
 ```bash
 python -m src.main
 ```
 
-The pipeline will create the required database tables if they do not already exist, retrieve Moodle learner data, transform and validate the records, load them into PostgreSQL and update the execution history.
+The pipeline will:
+
+1. Connect to Moodle.
+2. Extract learner data.
+3. Retrieve new or modified activity reports.
+4. Transform and validate the extracted data.
+5. Load records into PostgreSQL.
+6. Update pipeline execution history.
+7. Update the extraction checkpoint after successful processing.
